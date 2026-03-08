@@ -1,4 +1,4 @@
-import type { Region, BlockState } from './litematicParser';
+import type { Region, BlockState } from "./litematicParser";
 
 export interface DecodedBlock {
   x: number;
@@ -8,9 +8,9 @@ export interface DecodedBlock {
 }
 
 const AIR_BLOCKS = new Set([
-  'minecraft:air',
-  'minecraft:cave_air',
-  'minecraft:void_air',
+  "minecraft:air",
+  "minecraft:cave_air",
+  "minecraft:void_air",
 ]);
 
 /** Interpret a signed 64-bit bigint as unsigned. */
@@ -50,8 +50,7 @@ export function decodeBlocks(region: Region): DecodedBlock[] {
         asUnsigned(blockStates[longIndex + 1]) << BigInt(64 - bitOffset);
       value = (lowBits | highBits) & mask;
     } else {
-      value =
-        (asUnsigned(blockStates[longIndex]) >> BigInt(bitOffset)) & mask;
+      value = (asUnsigned(blockStates[longIndex]) >> BigInt(bitOffset)) & mask;
     }
 
     const paletteIndex = Number(value);

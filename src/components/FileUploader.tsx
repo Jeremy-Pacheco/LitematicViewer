@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback } from "react";
 
 interface FileUploaderProps {
   onFileLoaded: (buffer: ArrayBuffer, fileName: string) => void;
@@ -22,7 +22,7 @@ export default function FileUploader({
       };
       reader.readAsArrayBuffer(file);
     },
-    [onFileLoaded]
+    [onFileLoaded],
   );
 
   return (
@@ -36,7 +36,7 @@ export default function FileUploader({
           className="upload-input"
         />
         <span className="upload-button">
-          {disabled ? 'Loading…' : 'Upload .litematic file'}
+          {disabled ? "Loading…" : "Upload .litematic file"}
         </span>
       </label>
     </div>
