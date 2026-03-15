@@ -1,5 +1,7 @@
 import { useCallback, useState } from "react";
 
+const MAX_FILE_SIZE_BYTES = 300 * 1024;
+
 interface FileUploaderProps {
   onFileLoaded: (buffer: ArrayBuffer, fileName: string) => void;
   disabled?: boolean;
@@ -11,8 +13,18 @@ export default function FileUploader({
 }: FileUploaderProps) {
   const [isDragging, setIsDragging] = useState(false);
 
+  const validateFileSize = useCallback((file: File): boolean => {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      alert("File too large. Maximum allowed size is 300 KB.");
+      return false;
+    }
+    return true;
+  }, []);
+
   const processFile = useCallback(
     (file: File) => {
+      if (!validateFileSize(file)) return;
+
       const reader = new FileReader();
       reader.onload = () => {
         if (reader.result instanceof ArrayBuffer) {
@@ -21,7 +33,7 @@ export default function FileUploader({
       };
       reader.readAsArrayBuffer(file);
     },
-    [onFileLoaded]
+    [onFileLoaded, validateFileSize]
   );
 
   const handleChange = useCallback(

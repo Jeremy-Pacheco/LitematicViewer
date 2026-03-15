@@ -1,7 +1,12 @@
 import { useRef, useEffect } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import * as BufferGeometryUtils from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { DecodedBlock } from "../lib/blockDecoder";
+import {
+  resolveBlockFaceTextureUrls,
+  type LoadedResourcePack,
+} from "../lib/resourcePack";
 
 /* ------------------------------------------------------------------ */
 /*  Block color map                                                    */
@@ -176,9 +181,73 @@ function getBlockColor(name: string, target: THREE.Color): THREE.Color {
 
 interface Viewer3DProps {
   blocks: DecodedBlock[];
+  resourcePack?: LoadedResourcePack | null;
 }
 
-export default function Viewer3D({ blocks }: Viewer3DProps) {
+type ShapeKind = "cube" | "stairs_bottom" | "stairs_top";
+
+interface RenderSpec {
+  shape: ShapeKind;
+  yaw: number;
+  scaleY: number;
+  offsetY: number;
+}
+
+function getRenderSpec(block: DecodedBlock): RenderSpec {
+  const name = block.block.name;
+  const properties = block.block.properties;
+
+  if (name.endsWith("_slab")) {
+    const slabType = properties?.type;
+    if (slabType === "top") {
+      return { shape: "cube", yaw: 0, scaleY: 0.5, offsetY: 0.25 };
+    }
+    if (slabType === "double") {
+      return { shape: "cube", yaw: 0, scaleY: 1, offsetY: 0 };
+    }
+    return { shape: "cube", yaw: 0, scaleY: 0.5, offsetY: -0.25 };
+  }
+
+  if (name.endsWith("_stairs")) {
+    const facing = properties?.facing;
+    const half = properties?.half;
+
+    let yaw = 0;
+    if (facing === "east") yaw = -Math.PI / 2;
+    if (facing === "south") yaw = Math.PI;
+    if (facing === "west") yaw = Math.PI / 2;
+
+    return {
+      shape: half === "top" ? "stairs_top" : "stairs_bottom",
+      yaw,
+      scaleY: 1,
+      offsetY: 0,
+    };
+  }
+
+  return { shape: "cube", yaw: 0, scaleY: 1, offsetY: 0 };
+}
+
+function createStairGeometry(isTop: boolean): THREE.BufferGeometry {
+  const base = new THREE.BoxGeometry(1, 0.5, 1);
+  base.translate(0, isTop ? 0.25 : -0.25, 0);
+
+  const step = new THREE.BoxGeometry(1, 0.5, 0.5);
+  step.translate(0, isTop ? -0.25 : 0.25, 0.25);
+
+  const merged = BufferGeometryUtils.mergeGeometries([base, step], false);
+  if (!merged) {
+    base.dispose();
+    step.dispose();
+    return new THREE.BoxGeometry(1, 1, 1);
+  }
+
+  base.dispose();
+  step.dispose();
+  return merged;
+}
+
+export default function Viewer3D({ blocks, resourcePack }: Viewer3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -228,24 +297,175 @@ export default function Viewer3D({ blocks }: Viewer3DProps) {
     const cy = (minY + maxY) / 2;
     const cz = (minZ + maxZ) / 2;
 
-    // -------- InstancedMesh: one box per non-air block --------
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.MeshLambertMaterial();
-    const mesh = new THREE.InstancedMesh(geometry, material, blocks.length);
-
+    // -------- Instanced meshes grouped by material signature --------
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
+    const textureLoader = new THREE.TextureLoader();
+
+    const geometryCache = new Map<ShapeKind, THREE.BufferGeometry>();
+    const textureCache = new Map<string, THREE.Texture>();
+    const materialCache = new Map<string, THREE.Material | THREE.Material[]>();
+    const groupedIndices = new Map<string, number[]>();
+    const sceneMeshes: THREE.InstancedMesh[] = [];
+
+    const getGeometry = (shape: ShapeKind): THREE.BufferGeometry => {
+      const existing = geometryCache.get(shape);
+      if (existing) return existing;
+
+      const geometry =
+        shape === "stairs_bottom"
+          ? createStairGeometry(false)
+          : shape === "stairs_top"
+            ? createStairGeometry(true)
+            : new THREE.BoxGeometry(1, 1, 1);
+
+      geometryCache.set(shape, geometry);
+      return geometry;
+    };
+
+    const getTexture = (url: string): THREE.Texture => {
+      const cached = textureCache.get(url);
+      if (cached) return cached;
+
+      const texture = textureLoader.load(url);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestMipmapNearestFilter;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      textureCache.set(url, texture);
+      return texture;
+    };
+
+    const getPrimaryTextureUrl = (block: DecodedBlock): string | undefined => {
+      if (!resourcePack) return undefined;
+      const faceTextures = resolveBlockFaceTextureUrls(block.block, resourcePack);
+      if (!faceTextures) return undefined;
+
+      return (
+        faceTextures.top ??
+        faceTextures.front ??
+        faceTextures.right ??
+        faceTextures.left ??
+        faceTextures.back ??
+        faceTextures.bottom
+      );
+    };
+
+    const buildMaterialsForBlock = (
+      block: DecodedBlock,
+      shape: ShapeKind,
+    ): THREE.Material | THREE.Material[] => {
+      const fallbackColor = getBlockColor(block.block.name, color).getHex();
+      const fallback = new THREE.MeshLambertMaterial({ color: fallbackColor });
+
+      if (shape === "stairs_bottom" || shape === "stairs_top") {
+        const textureUrl = getPrimaryTextureUrl(block);
+        if (!textureUrl) return fallback;
+
+        return new THREE.MeshLambertMaterial({
+          map: getTexture(textureUrl),
+          transparent: true,
+          alphaTest: 0.1,
+        });
+      }
+
+      if (!resourcePack) {
+        return [fallback, fallback, fallback, fallback, fallback, fallback];
+      }
+
+      const faceTextures = resolveBlockFaceTextureUrls(block.block, resourcePack);
+      if (!faceTextures) {
+        return [fallback, fallback, fallback, fallback, fallback, fallback];
+      }
+
+      const faceUrls = [
+        faceTextures.right,
+        faceTextures.left,
+        faceTextures.top,
+        faceTextures.bottom,
+        faceTextures.front,
+        faceTextures.back,
+      ];
+
+      return faceUrls.map((url) => {
+        if (!url) return fallback;
+        return new THREE.MeshLambertMaterial({
+          map: getTexture(url),
+          transparent: true,
+          alphaTest: 0.1,
+        });
+      });
+    };
+
+    const buildKeyForBlock = (block: DecodedBlock, shape: ShapeKind): string => {
+      const fallbackHex = getBlockColor(block.block.name, color)
+        .getHexString()
+        .padStart(6, "0");
+
+      if (shape === "stairs_bottom" || shape === "stairs_top") {
+        const stairTexture = getPrimaryTextureUrl(block);
+        if (!stairTexture) return `${shape}|color:${fallbackHex}`;
+        return `${shape}|tex:${stairTexture}`;
+      }
+
+      if (!resourcePack) return `${shape}|color:${fallbackHex}`;
+
+      const faceTextures = resolveBlockFaceTextureUrls(block.block, resourcePack);
+      if (!faceTextures) return `${shape}|color:${fallbackHex}`;
+
+      const keyFaces = [
+        faceTextures.right,
+        faceTextures.left,
+        faceTextures.top,
+        faceTextures.bottom,
+        faceTextures.front,
+        faceTextures.back,
+      ].map((value) => value ?? `color:${fallbackHex}`);
+
+      return `${shape}|tex:${keyFaces.join("|")}`;
+    };
+
+    const renderSpecs = blocks.map(getRenderSpec);
 
     for (let i = 0; i < blocks.length; i++) {
-      dummy.position.set(blocks[i].x - cx, blocks[i].y - cy, blocks[i].z - cz);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      mesh.setColorAt(i, getBlockColor(blocks[i].block.name, color));
+      const key = buildKeyForBlock(blocks[i], renderSpecs[i].shape);
+      if (!groupedIndices.has(key)) groupedIndices.set(key, []);
+      groupedIndices.get(key)?.push(i);
     }
 
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    scene.add(mesh);
+    for (const [key, indices] of groupedIndices.entries()) {
+      let materials = materialCache.get(key);
+      if (!materials) {
+        materials = buildMaterialsForBlock(
+          blocks[indices[0]],
+          renderSpecs[indices[0]].shape,
+        );
+        materialCache.set(key, materials);
+      }
+
+      const geometry = getGeometry(renderSpecs[indices[0]].shape);
+      const mesh = new THREE.InstancedMesh(geometry, materials, indices.length);
+      for (let i = 0; i < indices.length; i++) {
+        const blockIndex = indices[i];
+        const block = blocks[blockIndex];
+        const spec = renderSpecs[blockIndex];
+
+        dummy.position.set(
+          block.x - cx,
+          block.y - cy + spec.offsetY,
+          block.z - cz,
+        );
+        dummy.rotation.set(0, spec.yaw, 0);
+        dummy.scale.set(1, spec.scaleY, 1);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      }
+
+      mesh.instanceMatrix.needsUpdate = true;
+      scene.add(mesh);
+      sceneMeshes.push(mesh);
+    }
 
     // -------- Grid helper --------
     const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1);
@@ -293,14 +513,32 @@ export default function Viewer3D({ blocks }: Viewer3DProps) {
       cancelAnimationFrame(frameId);
       window.removeEventListener("resize", onResize);
       controls.dispose();
-      geometry.dispose();
-      material.dispose();
+      for (const geometry of geometryCache.values()) {
+        geometry.dispose();
+      }
+      for (const mesh of sceneMeshes) {
+        mesh.dispose();
+      }
+      const disposed = new Set<THREE.Material>();
+      for (const materialOrMaterials of materialCache.values()) {
+        const list = Array.isArray(materialOrMaterials)
+          ? materialOrMaterials
+          : [materialOrMaterials];
+        for (const mat of list) {
+          if (disposed.has(mat)) continue;
+          disposed.add(mat);
+          mat.dispose();
+        }
+      }
+      for (const texture of textureCache.values()) {
+        texture.dispose();
+      }
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
     };
-  }, [blocks]);
+  }, [blocks, resourcePack]);
 
   return <div ref={containerRef} className="viewer-3d" />;
 }
