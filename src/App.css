@@ -372,6 +372,32 @@
   font-style: italic;
 }
 
+.pack-uploader {
+  margin: 12px 0 20px;
+}
+
+.pack-upload-label {
+  display: inline-block;
+  cursor: pointer;
+}
+
+.pack-upload-button {
+  display: inline-block;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(100, 108, 255, 0.45);
+  background: rgba(100, 108, 255, 0.15);
+  color: #d9ddff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.pack-upload-button:hover {
+  border-color: rgba(100, 108, 255, 0.7);
+  background: rgba(100, 108, 255, 0.25);
+}
+
 /* ---- Status / info ---- */
 
 .status {
