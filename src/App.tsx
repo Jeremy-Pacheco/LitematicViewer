@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import FileUploader from './components/FileUploader';
 import ResourcePackUploader from './components/ResourcePackUploader';
 import Viewer3D from './components/Viewer3D';
+import MaterialsList from './components/MaterialsList';
 import { parseLitematic } from './lib/litematicParser';
 import { decodeBlocks } from './lib/blockDecoder';
 import type { DecodedBlock } from './lib/blockDecoder';
@@ -234,16 +235,19 @@ export default function App() {
           </footer>
         </div>
       ) : (
-        <div className="overlay overlay--compact">
-          <h1 className="title">Litematic Viewer</h1>
-          <button className="new-file-button" onClick={() => setBlocks([])}>
-            ← Load New File
-          </button>
-          <ResourcePackUploader onPackLoaded={handlePackLoaded} disabled={packLoading} />
-          {packInfo && <p className="status">Resource Pack: {packInfo}</p>}
-          {packError && <p className="status status--error">Resource Pack Error: {packError}</p>}
-          {info && <pre className="info">{info}</pre>}
-        </div>
+        <>
+          <div className="overlay overlay--compact">
+            <h1 className="title">Litematic Viewer</h1>
+            <button className="new-file-button" onClick={() => setBlocks([])}>
+              ← Load New File
+            </button>
+            <ResourcePackUploader onPackLoaded={handlePackLoaded} disabled={packLoading} />
+            {packInfo && <p className="status">Resource Pack: {packInfo}</p>}
+            {packError && <p className="status status--error">Resource Pack Error: {packError}</p>}
+            {info && <pre className="info">{info}</pre>}
+          </div>
+          <MaterialsList blocks={blocks} resourcePack={resourcePack} />
+        </>
       )}
     </div>
   );
