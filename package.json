@@ -7,13 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "preview": "vite preview"
   },
   "dependencies": {
     "buffer": "^6.0.3",
-    "gh-pages": "^6.3.0",
     "jszip": "^3.10.1",
     "pako": "^2.1.0",
     "prismarine-nbt": "^2.8.0",
