@@ -228,6 +228,7 @@
   top: 16px;
   left: 16px;
   max-width: 440px;
+  max-height: calc(100vh - 32px);
   padding: 18px;
   border-radius: 13px;
   border: 1px solid #2c3a49;
@@ -235,6 +236,9 @@
   box-shadow: var(--shadow-soft);
   backdrop-filter: blur(9px);
   color: var(--ink-700);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .overlay--compact {
@@ -395,6 +399,15 @@
   font-size: 0.8rem;
   line-height: 1.45;
   text-align: left;
+  flex-shrink: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.overlay .materials-container {
+  margin-top: 12px;
+  flex: 1;
+  min-height: 200px;
 }
 
 @keyframes fade-up {
