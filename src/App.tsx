@@ -1,9 +1,16 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import FileUploader from './components/FileUploader';
+import ResourcePackUploader from './components/ResourcePackUploader';
 import Viewer3D from './components/Viewer3D';
+import MaterialsList from './components/MaterialsList';
 import { parseLitematic } from './lib/litematicParser';
 import { decodeBlocks } from './lib/blockDecoder';
 import type { DecodedBlock } from './lib/blockDecoder';
+import {
+  loadResourcePack,
+  disposeResourcePack,
+  type LoadedResourcePack,
+} from './lib/resourcePack';
 import './App.css';
 
 export default function App() {
@@ -11,6 +18,21 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [resourcePack, setResourcePack] = useState<LoadedResourcePack | null>(null);
+  const [packLoading, setPackLoading] = useState(false);
+  const [packInfo, setPackInfo] = useState<string | null>(null);
+  const [packError, setPackError] = useState<string | null>(null);
+  const resourcePackRef = useRef<LoadedResourcePack | null>(null);
+
+  useEffect(() => {
+    resourcePackRef.current = resourcePack;
+  }, [resourcePack]);
+
+  useEffect(() => {
+    return () => {
+      disposeResourcePack(resourcePackRef.current);
+    };
+  }, []);
 
   const handleFileLoaded = useCallback(
     async (buffer: ArrayBuffer, fileName: string) => {
@@ -26,7 +48,10 @@ export default function App() {
 
         for (const region of data.regions) {
           const decoded = decodeBlocks(region);
-          allBlocks.push(...decoded);
+          // Avoid spreading large arrays, which can overflow the JS call stack.
+          for (const block of decoded) {
+            allBlocks.push(block);
+          }
           regionInfos.push(
             `${region.name}: ${region.size.x}×${region.size.y}×${region.size.z} (${decoded.length} blocks)`
           );
@@ -45,9 +70,32 @@ export default function App() {
     []
   );
 
+  const handlePackLoaded = useCallback(
+    async (buffer: ArrayBuffer, fileName: string) => {
+      setPackLoading(true);
+      setPackError(null);
+
+      try {
+        const pack = await loadResourcePack(buffer, fileName);
+        const textureCount = Object.keys(pack.textures).length;
+
+        setResourcePack((previous) => {
+          disposeResourcePack(previous);
+          return pack;
+        });
+        setPackInfo(`${fileName} loaded (${textureCount} texture files)`);
+      } catch (err) {
+        setPackError(err instanceof Error ? err.message : 'Failed to load resource pack');
+      } finally {
+        setPackLoading(false);
+      }
+    },
+    []
+  );
+
   return (
     <div className="app">
-      {blocks.length > 0 && <Viewer3D blocks={blocks} />}
+      {blocks.length > 0 && <Viewer3D blocks={blocks} resourcePack={resourcePack} />}
 
       {blocks.length === 0 ? (
         <div className="landing-page">
@@ -57,8 +105,11 @@ export default function App() {
               Visualize your Minecraft builds in stunning 3D, right in your browser
             </p>
             <FileUploader onFileLoaded={handleFileLoaded} disabled={loading} />
+            <ResourcePackUploader onPackLoaded={handlePackLoaded} disabled={packLoading} />
             {loading && <p className="status">Parsing file…</p>}
             {error && <p className="status status--error">Error: {error}</p>}
+            {packInfo && <p className="status">Resource Pack: {packInfo}</p>}
+            {packError && <p className="status status--error">Resource Pack Error: {packError}</p>}
           </div>
 
           <div className="features-section">
@@ -184,13 +235,19 @@ export default function App() {
           </footer>
         </div>
       ) : (
-        <div className="overlay overlay--compact">
-          <h1 className="title">Litematic Viewer</h1>
-          <button className="new-file-button" onClick={() => setBlocks([])}>
-            ← Load New File
-          </button>
-          {info && <pre className="info">{info}</pre>}
-        </div>
+        <>
+          <div className="overlay overlay--compact">
+            <h1 className="title">Litematic Viewer</h1>
+            <button className="new-file-button" onClick={() => setBlocks([])}>
+              ← Load New File
+            </button>
+            <ResourcePackUploader onPackLoaded={handlePackLoaded} disabled={packLoading} />
+            {packInfo && <p className="status">Resource Pack: {packInfo}</p>}
+            {packError && <p className="status status--error">Resource Pack Error: {packError}</p>}
+            {info && <pre className="info">{info}</pre>}
+          </div>
+          <MaterialsList blocks={blocks} resourcePack={resourcePack} />
+        </>
       )}
     </div>
   );
